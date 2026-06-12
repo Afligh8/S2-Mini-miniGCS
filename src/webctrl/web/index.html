@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ESP32 Drone Ground Control</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.7);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-color: #f8fafc;
+            --text-muted: #94a3b8;
+            --primary: #3b82f6;
+            --primary-hover: #60a5fa;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --danger-hover: #f87171;
+            --warning: #f59e0b;
+            --glow-color: rgba(59, 130, 246, 0.5);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Glassmorphism panel styles */
+        .glass-panel {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        header {
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            background: linear-gradient(to right, #60a5fa, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            padding: 6px 12px;
+            border-radius: 9999px;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--danger);
+            box-shadow: 0 0 8px var(--danger);
+        }
+
+        .status-indicator.connected {
+            background-color: var(--success);
+            box-shadow: 0 0 8px var(--success);
+        }
+
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 320px 1fr 320px;
+            gap: 16px;
+            padding: 16px;
+            height: calc(100vh - 60px);
+            overflow: hidden;
+        }
+
+        @media (max-width: 1024px) {
+            main {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto 1fr;
+                overflow-y: auto;
+                height: auto;
+            }
+        }
+
+        .panel-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            height: 100%;
+        }
+
+        .panel-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        /* Telemetry View */
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .telemetry-item {
+            background: rgba(0, 0, 0, 0.15);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .telemetry-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .telemetry-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Attention/Limitation Banner */
+        .banner {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 12px;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            color: #fbbf24;
+        }
+
+        .banner strong {
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        /* Control Pads */
+        .control-layout {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 100%;
+            padding: 16px;
+        }
+
+        .dpad-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex: 1;
+            position: relative;
+        }
+
+        .dpad {
+            position: relative;
+            width: 240px;
+            height: 240px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.2);
+            border: 2px dashed rgba(255, 255, 255, 0.1);
+        }
+
+        .dpad-btn {
+            position: absolute;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .dpad-btn:active {
+            background: var(--primary);
+            box-shadow: 0 0 15px var(--glow-color);
+            transform: scale(0.95);
+        }
+
+        .dpad-btn.up {
+            top: 10px; left: 80px; width: 80px; height: 60px;
+            border-radius: 12px 12px 4px 4px;
+        }
+        .dpad-btn.down {
+            bottom: 10px; left: 80px; width: 80px; height: 60px;
+            border-radius: 4px 4px 12px 12px;
+        }
+        .dpad-btn.left {
+            top: 80px; left: 10px; width: 60px; height: 80px;
+            border-radius: 12px 4px 4px 12px;
+        }
+        .dpad-btn.right {
+            top: 80px; right: 10px; width: 60px; height: 80px;
+            border-radius: 4px 12px 12px 4px;
+        }
+
+        .yaw-container {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .yaw-btn {
+            flex: 1;
+            padding: 14px;
+            border-radius: 12px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.15s ease;
+        }
+        .yaw-btn:active {
+            background: var(--primary);
+            box-shadow: 0 0 15px var(--glow-color);
+        }
+
+        /* Altitude Step Controls */
+        .step-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-top: 12px;
+        }
+
+        .btn-step {
+            width: 100%;
+            padding: 14px;
+            border-radius: 12px;
+            font-weight: 700;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #60a5fa;
+        }
+
+        .btn-step:active {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 0 15px var(--glow-color);
+        }
+
+        .btn-land {
+            width: 100%;
+            padding: 14px;
+            border-radius: 12px;
+            font-weight: 700;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            color: var(--warning);
+        }
+
+        .btn-land:active {
+            background: var(--warning);
+            color: black;
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.4);
+        }
+
+        /* Safety & Config Panel */
+        .arm-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .arm-interlock {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 26px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border-color);
+            transition: .3s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--text-color);
+            transition: .3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--warning);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(24px);
+        }
+
+        .btn-arm {
+            width: 100%;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 800;
+            cursor: pointer;
+            text-align: center;
+            border: none;
+            transition: all 0.2s ease;
+            background-color: rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .btn-arm.unlocked {
+            background-color: var(--success);
+            color: white;
+            pointer-events: auto;
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.3);
+        }
+
+        .btn-arm.unlocked:active {
+            transform: scale(0.97);
+        }
+
+        .btn-disarm {
+            width: 100%;
+            padding: 18px;
+            border-radius: 12px;
+            font-size: 1.25rem;
+            font-weight: 800;
+            cursor: pointer;
+            text-align: center;
+            background-color: var(--danger);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            box-shadow: 0 4px 20px rgba(239, 68, 68, 0.4);
+            transition: all 0.15s ease;
+        }
+
+        .btn-disarm:active {
+            background-color: var(--danger-hover);
+            transform: scale(0.95);
+            box-shadow: 0 0 30px var(--danger);
+        }
+
+        /* Config Form */
+        .config-form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .input-group label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .input-group input {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: white;
+            font-size: 0.875rem;
+            outline: none;
+        }
+
+        .input-group input:focus {
+            border-color: var(--primary);
+        }
+
+        .btn-config {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.875rem;
+            margin-top: 4px;
+            transition: all 0.15s ease;
+        }
+
+        .btn-config:active:not(:disabled) {
+            background: var(--primary);
+        }
+
+        .btn-config:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Console log */
+        .console {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            height: 120px;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 0.75rem;
+            overflow-y: auto;
+            color: #a7f3d0;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <header class="glass-panel">
+        <h1>ESP-Drone Control</h1>
+        <div class="status-badge">
+            <div id="statusIndicator" class="status-indicator"></div>
+            <span id="statusText">Disconnected</span>
+            <span id="rttText" style="margin-left: 8px; color: var(--text-muted); font-variant-numeric: tabular-nums;">RTT: -- ms</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Left Panel: Telemetry -->
+        <div class="panel-container">
+            <div class="glass-panel" style="padding: 16px; flex: 1;">
+                <h2 class="panel-title">Telemetry</h2>
+                <div class="banner">
+                    <strong>Altitude Limitation Notice</strong>
+                    No barometer or ToF sensor is available. Thrust is managed by manual step increments. Always use fine steps to maintain altitude.
+                </div>
+                <div class="telemetry-grid">
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Roll</span>
+                        <span id="telemetryRoll" class="telemetry-value">0.0°</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Pitch</span>
+                        <span id="telemetryPitch" class="telemetry-value">0.0°</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Yaw</span>
+                        <span id="telemetryYaw" class="telemetry-value">0.0°</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Thrust</span>
+                        <span id="telemetryThrust" class="telemetry-value">0</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Battery</span>
+                        <span id="telemetryBattery" class="telemetry-value">0.00V</span>
+                    </div>
+                    <div class="telemetry-item">
+                        <span class="telemetry-label">Flight State</span>
+                        <span id="telemetryState" class="telemetry-value" style="font-size: 1rem; color: var(--warning);">DISARMED</span>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 16px; display: flex; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted);">
+                        <span>Stabilizer Loop:</span>
+                        <span id="telemetryStabFreq">-- Hz</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted);">
+                        <span>Client State:</span>
+                        <span id="telemetryControlLock">Lock Pending</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted);">
+                        <span>Dropped Pkts:</span>
+                        <span id="telemetryDropped">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Panel: Pitch/Roll & Yaw D-Pad -->
+        <div class="panel-container">
+            <div class="glass-panel control-layout">
+                <h2 class="panel-title" style="margin-bottom: 0;">Flight Controls</h2>
+                
+                <div class="dpad-container">
+                    <div class="dpad">
+                        <div id="btnForward" class="dpad-btn up">FWD</div>
+                        <div id="btnBack" class="dpad-btn down">BACK</div>
+                        <div id="btnLeft" class="dpad-btn left">L</div>
+                        <div id="btnRight" class="dpad-btn right">R</div>
+                    </div>
+                </div>
+
+                <div class="yaw-container">
+                    <div id="btnYawLeft" class="yaw-btn">Yaw Left</div>
+                    <div id="btnYawRight" class="yaw-btn">Yaw Right</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Safety, Throttle Step, Wifi Config -->
+        <div class="panel-container">
+            <div class="glass-panel" style="padding: 16px; display: flex; flex-direction: column; gap: 16px;">
+                <div class="arm-section">
+                    <h2 class="panel-title">Safety System</h2>
+                    
+                    <div class="arm-interlock">
+                        <span style="font-size: 0.875rem; font-weight: 500;">Enable Arming Toggle</span>
+                        <label class="switch">
+                            <input type="checkbox" id="armToggle">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <button id="btnArm" class="btn-arm">ARM VEHICLE</button>
+                    <button id="btnDisarm" class="btn-disarm">EMERGENCY DISARM</button>
+                </div>
+
+                <div class="step-controls">
+                    <h2 class="panel-title">Throttle Steps</h2>
+                    <div id="btnThrustUp" class="btn-step">Throttle Up (+Increment)</div>
+                    <div id="btnThrustDown" class="btn-step">Throttle Down (-Increment)</div>
+                    <div id="btnLand" class="btn-land">Auto Land (Ramp Down)</div>
+                </div>
+
+                <div>
+                    <h2 class="panel-title">WiFi Settings</h2>
+                    <form id="wifiForm" class="config-form" onsubmit="return false;">
+                        <div class="input-group">
+                            <label for="wifiSsid">SSID</label>
+                            <input type="text" id="wifiSsid" placeholder="SSID">
+                        </div>
+                        <div class="input-group">
+                            <label for="wifiPass">Password</label>
+                            <input type="password" id="wifiPass" placeholder="Password">
+                        </div>
+                        <button id="btnSaveWifi" type="button" class="btn-config">Save & Reboot AP</button>
+                    </form>
+                </div>
+
+                <div class="console" id="logConsole">System Initialized. Offline mode ready.</div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const PROTOCOL_VERSION = 1;
+        let ws = null;
+        let token = 0;
+        let controlled = false;
+        let sequence = 0;
+        let heartbeatInterval = null;
+        let rttStartTimes = {};
+
+        // Active control state
+        let rollVal = 0.0;
+        let pitchVal = 0.0;
+        let yawRateVal = 0.0;
+        let thrustAction = "none";
+
+        // Constants for target inputs
+        const ROLL_TARGET = 8.0;      // deg when held
+        const PITCH_TARGET = 8.0;     // deg when held
+        const YAW_RATE_TARGET = 30.0; // deg/s when held
+
+        // Elements
+        const logConsole = document.getElementById("logConsole");
+        const statusIndicator = document.getElementById("statusIndicator");
+        const statusText = document.getElementById("statusText");
+        const rttText = document.getElementById("rttText");
+        const armToggle = document.getElementById("armToggle");
+        const btnArm = document.getElementById("btnArm");
+        const btnDisarm = document.getElementById("btnDisarm");
+        const btnSaveWifi = document.getElementById("btnSaveWifi");
+        const wifiSsid = document.getElementById("wifiSsid");
+        const wifiPass = document.getElementById("wifiPass");
+
+        // Telemetry Fields
+        const telRoll = document.getElementById("telemetryRoll");
+        const telPitch = document.getElementById("telemetryPitch");
+        const telYaw = document.getElementById("telemetryYaw");
+        const telThrust = document.getElementById("telemetryThrust");
+        const telBattery = document.getElementById("telemetryBattery");
+        const telState = document.getElementById("telemetryState");
+        const telStabFreq = document.getElementById("telemetryStabFreq");
+        const telControlLock = document.getElementById("telemetryControlLock");
+        const telDropped = document.getElementById("telemetryDropped");
+
+        function log(msg) {
+            const time = new Date().toLocaleTimeString();
+            logConsole.textContent += `\n[${time}] ${msg}`;
+            logConsole.scrollTop = logConsole.scrollHeight;
+        }
+
+        // Setup WS connection
+        function connect() {
+            const host = window.location.hostname || "192.168.43.42";
+            log(`Connecting to WebSocket ws://${host}/ws...`);
+            
+            ws = new WebSocket(`ws://${host}/ws`);
+
+            ws.onopen = () => {
+                statusIndicator.classList.add("connected");
+                statusText.textContent = "Connected";
+                log("WebSocket Connected successfully.");
+                
+                // Start sending heartbeats every 200 ms
+                heartbeatInterval = setInterval(sendHeartbeat, 200);
+            };
+
+            ws.onclose = () => {
+                statusIndicator.classList.remove("connected");
+                statusText.textContent = "Disconnected";
+                rttText.textContent = "RTT: -- ms";
+                log("WebSocket Connection lost. Retrying in 2 seconds...");
+                
+                clearInterval(heartbeatInterval);
+                ws = null;
+                token = 0;
+                controlled = false;
+                
+                setTimeout(connect, 2000);
+            };
+
+            ws.onerror = (err) => {
+                log("WebSocket error encountered.");
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.v !== PROTOCOL_VERSION) {
+                        log(`Protocol Mismatch: client=${PROTOCOL_VERSION}, server=${msg.v}`);
+                        return;
+                    }
+
+                    if (msg.t === "conn_ack") {
+                        token = msg.token;
+                        controlled = msg.controlled;
+                        telControlLock.textContent = controlled ? "CONTROL ACQUIRED" : "TELEMETRY ONLY";
+                        telControlLock.style.color = controlled ? "var(--success)" : "var(--warning)";
+                        log(`Session token received. Controlled=${controlled}`);
+                        
+                        // SSID config input states
+                        wifiSsid.disabled = !controlled;
+                        wifiPass.disabled = !controlled;
+                        btnSaveWifi.disabled = !controlled;
+                    } 
+                    else if (msg.t === "telemetry") {
+                        // Echo RTT
+                        if (rttStartTimes[msg.seq_echo]) {
+                            const rtt = Date.now() - rttStartTimes[msg.seq_echo];
+                            rttText.textContent = `RTT: ${rtt} ms`;
+                            delete rttStartTimes[msg.seq_echo];
+                        }
+
+                        // Update telemetry dashboard
+                        telRoll.textContent = `${msg.roll.toFixed(1)}°`;
+                        telPitch.textContent = `${msg.pitch.toFixed(1)}°`;
+                        telYaw.textContent = `${msg.yaw.toFixed(1)}°`;
+                        telThrust.textContent = msg.thrust;
+                        telBattery.textContent = `${msg.battery.toFixed(2)}V`;
+                        
+                        telState.textContent = msg.state;
+                        if (msg.state === "DISARMED") {
+                            telState.style.color = "var(--text-muted)";
+                        } else if (msg.state === "AUTOLAND") {
+                            telState.style.color = "var(--warning)";
+                        } else {
+                            telState.style.color = "var(--success)";
+                        }
+
+                        telStabFreq.textContent = `${msg.stab_freq.toFixed(1)} Hz`;
+                        telDropped.textContent = msg.dropped_packets;
+
+                        // Only allow wifi config when disarmed
+                        const isDisarmed = msg.state === "DISARMED";
+                        wifiSsid.disabled = !isDisarmed || !controlled;
+                        wifiPass.disabled = !isDisarmed || !controlled;
+                        btnSaveWifi.disabled = !isDisarmed || !controlled;
+                    }
+                } catch (e) {
+                    log("Error parsing websocket frame: " + e.message);
+                }
+            };
+        }
+
+        function sendFrame(payload) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                payload.seq = ++sequence;
+                rttStartTimes[payload.seq] = Date.now();
+                ws.send(JSON.stringify(payload));
+            }
+        }
+
+        function sendHeartbeat() {
+            if (token === 0) return;
+            
+            // If active controls are zero/none, send heartbeat to save bandwidth,
+            // otherwise the commands themselves act as heartbeats.
+            if (rollVal === 0.0 && pitchVal === 0.0 && yawRateVal === 0.0 && thrustAction === "none") {
+                sendFrame({
+                    v: PROTOCOL_VERSION,
+                    t: "heartbeat",
+                    token: token
+                });
+            } else {
+                sendFrame({
+                    v: PROTOCOL_VERSION,
+                    t: "cmd",
+                    token: token,
+                    roll: rollVal,
+                    pitch: pitchVal,
+                    yaw_rate: yawRateVal,
+                    thrust: 0, // In firmware, step controls are action-driven, absolute throttle is 0 here
+                    action: thrustAction
+                });
+                // Reset step actions immediately so they only execute once
+                if (thrustAction === "takeoff_step" || thrustAction === "down_step" || thrustAction === "arm" || thrustAction === "disarm" || thrustAction === "land") {
+                    thrustAction = "none";
+                }
+            }
+        }
+
+        // Arming slider interaction
+        armToggle.addEventListener("change", (e) => {
+            if (e.target.checked) {
+                btnArm.classList.add("unlocked");
+                log("Arming toggle enabled. Double check safety boundary!");
+            } else {
+                btnArm.classList.remove("unlocked");
+            }
+        });
+
+        btnArm.addEventListener("click", () => {
+            if (armToggle.checked && controlled) {
+                log("Sending ARM command...");
+                thrustAction = "arm";
+                sendHeartbeat(); // Force immediate transmission
+            }
+        });
+
+        // DISARM button - highest priority
+        btnDisarm.addEventListener("click", () => {
+            log("Sending EMERGENCY DISARM...");
+            thrustAction = "disarm";
+            armToggle.checked = false;
+            btnArm.classList.remove("unlocked");
+            sendFrame({
+                v: PROTOCOL_VERSION,
+                t: "cmd",
+                token: token,
+                roll: 0.0,
+                pitch: 0.0,
+                yaw_rate: 0.0,
+                thrust: 0,
+                action: "disarm"
+            });
+        });
+
+        // Throttle Step Actions
+        document.getElementById("btnThrustUp").addEventListener("click", () => {
+            if (controlled) {
+                log("Throttle Up Step sent");
+                thrustAction = "takeoff_step";
+                sendHeartbeat();
+            }
+        });
+
+        document.getElementById("btnThrustDown").addEventListener("click", () => {
+            if (controlled) {
+                log("Throttle Down Step sent");
+                thrustAction = "down_step";
+                sendHeartbeat();
+            }
+        });
+
+        document.getElementById("btnLand").addEventListener("click", () => {
+            if (controlled) {
+                log("Timed Land sent");
+                thrustAction = "land";
+                sendHeartbeat();
+            }
+        });
+
+        // Setup press-and-hold controls helper
+        function setupHoldButton(elementId, onPress, onRelease) {
+            const btn = document.getElementById(elementId);
+            
+            const pressHandler = (e) => {
+                e.preventDefault();
+                onPress();
+            };
+
+            const releaseHandler = (e) => {
+                e.preventDefault();
+                onRelease();
+            };
+
+            btn.addEventListener("mousedown", pressHandler);
+            btn.addEventListener("mouseup", releaseHandler);
+            btn.addEventListener("mouseleave", releaseHandler);
+
+            btn.addEventListener("touchstart", pressHandler);
+            btn.addEventListener("touchend", releaseHandler);
+        }
+
+        // Bind Hold Controls
+        setupHoldButton("btnForward", 
+            () => { pitchVal = -PITCH_TARGET; }, 
+            () => { pitchVal = 0.0; }
+        );
+        setupHoldButton("btnBack", 
+            () => { pitchVal = PITCH_TARGET; }, 
+            () => { pitchVal = 0.0; }
+        );
+        setupHoldButton("btnLeft", 
+            () => { rollVal = -ROLL_TARGET; }, 
+            () => { rollVal = 0.0; }
+        );
+        setupHoldButton("btnRight", 
+            () => { rollVal = ROLL_TARGET; }, 
+            () => { rollVal = 0.0; }
+        );
+        setupHoldButton("btnYawLeft", 
+            () => { yawRateVal = -YAW_RATE_TARGET; }, 
+            () => { yawRateVal = 0.0; }
+        );
+        setupHoldButton("btnYawRight", 
+            () => { yawRateVal = YAW_RATE_TARGET; }, 
+            () => { yawRateVal = 0.0; }
+        );
+
+        // Keyboard support
+        const keyState = {};
+        window.addEventListener("keydown", (e) => {
+            if (e.target.tagName === "INPUT") return;
+            if (keyState[e.key]) return; // Prevent repeat key events
+            keyState[e.key] = true;
+
+            switch (e.key.toLowerCase()) {
+                case "w": case "arrowup": pitchVal = -PITCH_TARGET; break;
+                case "s": case "arrowdown": pitchVal = PITCH_TARGET; break;
+                case "a": case "arrowleft": rollVal = -ROLL_TARGET; break;
+                case "d": case "arrowright": rollVal = ROLL_TARGET; break;
+                case "q": yawRateVal = -YAW_RATE_TARGET; break;
+                case "e": yawRateVal = YAW_RATE_TARGET; break;
+                case "r": 
+                    if (controlled) {
+                        log("Keyboard Throttle Up Step");
+                        thrustAction = "takeoff_step";
+                        sendHeartbeat();
+                    }
+                    break;
+                case "f": 
+                    if (controlled) {
+                        log("Keyboard Throttle Down Step");
+                        thrustAction = "down_step";
+                        sendHeartbeat();
+                    }
+                    break;
+                case "escape": 
+                    log("Keyboard EMERGENCY DISARM!");
+                    btnDisarm.click();
+                    break;
+            }
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.target.tagName === "INPUT") return;
+            keyState[e.key] = false;
+
+            switch (e.key.toLowerCase()) {
+                case "w": case "arrowup":
+                case "s": case "arrowdown":
+                    pitchVal = 0.0; break;
+                case "a": case "arrowleft":
+                case "d": case "arrowright":
+                    rollVal = 0.0; break;
+                case "q":
+                case "e":
+                    yawRateVal = 0.0; break;
+            }
+        });
+
+        // Config form submit
+        btnSaveWifi.addEventListener("click", () => {
+            const ssid = wifiSsid.value.trim();
+            const pass = wifiPass.value.trim();
+            
+            if (!ssid) {
+                log("Error: SSID cannot be empty.");
+                return;
+            }
+            if (pass.length > 0 && pass.length < 8) {
+                log("Error: Password must be at least 8 characters.");
+                return;
+            }
+
+            log(`Sending WiFi config change... SSID: ${ssid}`);
+            sendFrame({
+                v: PROTOCOL_VERSION,
+                t: "save_wifi",
+                token: token,
+                ssid: ssid,
+                pass: pass
+            });
+        });
+
+        // Connect on load
+        window.addEventListener("load", connect);
+    </script>
+</body>
+</html>
